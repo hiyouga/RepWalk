@@ -65,8 +65,10 @@ class Tokenizer(object):
                 all_tokens.update(map(lambda x: x.lower() if lower else x, data['token']))
                 all_pos.update(data['pos'])
                 all_deprel.update(data['deprel'])
-                max_slen = max(max_slen, len(data['token']))
+                max_slen = max(max_slen, len(data['token'])+2) # sentence length should add 2 for position indicators
                 max_plen = max(max_plen, max([len(p)+1 for aspect in data['aspects'] for p in aspect['path']])) # path length should add 1 for extra relation
+        all_tokens.update(['<p>', '</p>']) # add position indicators
+        all_pos.update(['<p>', '</p>']) # add position indicators
         all_deprel.update([f"rev#{rel}" for rel in all_deprel])
         word_vocab, pos_vocab, deprel_vocab = Vocab(all_tokens), Vocab(all_pos), Vocab(all_deprel)
         return cls(word_vocab, pos_vocab, deprel_vocab, max_slen, max_plen, lower)
@@ -127,14 +129,27 @@ class MyDataset(Dataset):
         polarity_dict = {'positive': 0, 'negative': 1, 'neutral': 2}
         fdata = json.load(open(fname, 'r', encoding='utf-8'))
         for data in fdata:
-            text = tokenizer.to_sequence(data['token'], 'word')
-            pos = tokenizer.to_sequence(data['pos'], 'pos')
             for aspect in data['aspects']:
-                deprel = tokenizer.to_sequence(aspect['deprel'], 'deprel')
                 start, end = int(aspect['from']), int(aspect['to'])
+                ''' position indicator '''
+                text_left = data['token'][0:start]
+                text_aspect = data['token'][start:end]
+                text_right = data['token'][end:]
+                pos_left = data['pos'][0:start]
+                pos_aspect = data['pos'][start:end]
+                pos_right = data['pos'][end:]
+                text_pi = text_left + ['<p>'] + text_aspect + ['</p>'] + text_right
+                pos_pi = pos_left + ['<p>'] + pos_aspect + ['</p>'] + pos_right
+                ''' padding sequence '''
+                text = tokenizer.to_sequence(text_pi, 'word')
+                pos = tokenizer.to_sequence(pos_pi, 'pos')
+                deprel = tokenizer.to_sequence(aspect['deprel'], 'deprel')
+                gather_idx = [i+1 for i in range(len(text_left))] + [i+2+start for i in range(len(text_aspect))] + [i+3+end for i in range(len(text_right))]
+                gather_idx = tokenizer.pad_sequence(gather_idx, 0)
                 aspect_mask = [1 if start <= i < end else 0 for i in range(len(data['token']))]
                 aspect_head = tokenizer.pad_sequence(aspect['head'], 0)
                 aspect_mask = tokenizer.pad_sequence(aspect_mask, 0)
+                ''' compute dependency path '''
                 path = list()
                 for i in range(len(data['token'])):
                     aspect['path'][i].append(i+1+tokenizer.max_slen) # add a stop node with extra relation
@@ -143,7 +158,7 @@ class MyDataset(Dataset):
                     path.append(tokenizer.pad_sequence([], 0, maxlen=tokenizer.max_plen))
                 path = np.asarray(path)
                 polarity = polarity_dict[aspect['polarity']]
-                dataset.append(((text, pos, deprel, aspect_head, aspect_mask, path), polarity)) # samples in (x, y) tuples
+                dataset.append(((text, pos, deprel, aspect_head, aspect_mask, gather_idx, path), polarity)) # samples in (x, y) tuples
         return dataset
     
     def __getitem__(self, index):

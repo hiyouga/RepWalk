@@ -34,7 +34,7 @@ class RepWalk(nn.Module):
         
     
     def forward(self, inputs):
-        text, pos, deprel, aspect_head, aspect_mask, path = inputs # input features, shape (batch_size, seq_len) except for the path whose shape is (batch_size, seq_len, path_len)
+        text, pos, deprel, aspect_head, aspect_mask, gather_idx, path = inputs # input features, shape (batch_size, seq_len) except for the path whose shape is (batch_size, seq_len, path_len)
         ''' common variables '''
         text_len = torch.sum(text!=0, dim=-1) # length of sentences, shape (batch_size)
         text_mask = (text!=0).unsqueeze(-1) # mask of texts (paddings: 0, others: 1), shape (batch_size, seq_len)
@@ -51,6 +51,10 @@ class RepWalk(nn.Module):
         padword_feature = self.pad_word.reshape(1, 1, -1).expand(BS, -1, -1) # expand padding word embedding, shape (batch_size, 1, hidden_dim*2)
         exttext_feature = self.pad_word.reshape(1, 1, -1).expand(BS, SL, -1) # expand extra text feature, shape (batch_size, seq_len, hidden_dim*2)
         padedge_feature = self.pad_edge.reshape(1, 1, -1).expand(BS, -1, -1) # expand padding edge embedding, shape (batch_size, 1, 1)
+        ''' arrange node '''
+        gather_idx = gather_idx.unsqueeze(0).expand(FD, -1, -1) # indices for gathering the original words, shape (hidden_dim*2, batch_size, seq_len)
+        node_feature = torch.cat((padword_feature, node_feature), dim=1).permute(2, 0, 1) # padded words, shape (hidden_dim*2, batch_size, seq_len)
+        node_feature = torch.gather(node_feature, 2, gather_idx).permute(1, 2, 0) # original words, shape (batch_size, seq_len, hidden_dim*2)
         ''' edge feature '''
         deptext_feature = torch.cat((padword_feature, node_feature), dim=1).permute(2, 0, 1) # dependents features, shape (hidden_dim*2, batch_size, seq_len+1)
         aspect_head = aspect_head.unsqueeze(0).expand(FD, -1, -1) # head indices of current aspect, shape (hidden_dim*2, batch_size, seq_len)
