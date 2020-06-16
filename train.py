@@ -79,7 +79,7 @@ class Instructor:
                 outputs = self.model(inputs)
                 loss = criterion(outputs, labels)
                 
-                test_loss += loss.item() * len(outputs)
+                test_loss += loss.item() * len(labels)
                 n_correct += (torch.argmax(outputs[0], -1) == labels).sum().item()
                 n_test += len(labels)
                 labels_all = torch.cat((labels_all, labels), dim=0) if labels_all is not None else labels
